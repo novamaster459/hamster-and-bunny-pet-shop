@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hamster & Bunny Pet Shop</title>
+    <meta name="description" content="Cute hamster-themed pet shop with products, carts, and management dashboard." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;600;700;800&family=Poppins:wght@400;500;600;700&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+    <header class="topbar">
+        <div class="brand-wrap">
+            <div class="brand-badge">🐹</div>
+            <div>
+                <div class="brand-name">Hamster & Bunny</div>
+                <div class="brand-subtitle">Pet Shop</div>
+            </div>
+        </div>
+
+        <nav id="categoryTabs" class="category-tabs" aria-label="Main navigation"></nav>
+
+        <div class="header-actions">
+            <button id="adminButton" class="secondary-btn">Admin</button>
+            <button id="accountButton" class="secondary-btn">Login</button>
+            <button id="cartButton" class="cart-btn" aria-label="Shopping cart">
+                <span class="cart-icon">🛒</span>
+                <span id="cartCount" class="cart-count">0</span>
+            </button>
+        </div>
+    </header>
+
+    <main class="page-shell">
+        <section class="hero">
+            <div class="hero-copy">
+                <p class="eyebrow"><span class="eyebrow-dot"></span> Small pets, thoughtfully cared for</p>
+                <h1>Little things.<br /><span>Big happy days.</span></h1>
+                <p>
+                    Find a cozy home, a better snack, or a new little companion. Picked with care for the small things that matter.
+                </p>
+                <div class="hero-actions">
+                    <button id="shopNowBtn" class="primary-btn">Shop now</button>
+                    <button id="featuredBtn" class="ghost-btn"><span aria-hidden="true">✦</span> Add today's pick</button>
+                </div>
+                <div class="hero-note"><span>✓</span> Cozy essentials, friendly prices, happy homes</div>
+            </div>
+            <div class="hero-visual">
+                <img class="hero-photo" src="https://images.unsplash.com/photo-1548767797-d8c844163c4c?auto=format&fit=crop&w=1200&q=85" alt="A curious hamster enjoying a quiet moment" />
+                <div class="photo-caption"><span class="caption-mark">01</span><span>Made for tiny paws</span></div>
+            </div>
+        </section>
+
+        <section class="shop-panel">
+            <div class="section-head">
+                <div>
+                    <p class="eyebrow">Curated care</p>
+                    <h2 id="sectionTitle">Hamsters</h2>
+                </div>
+                <div class="shop-tools">
+                    <label class="search-box" for="productSearch">
+                        <span aria-hidden="true">⌕</span>
+                        <input id="productSearch" type="search" placeholder="Find something lovely" autocomplete="off" />
+                        <kbd>/</kbd>
+                    </label>
+                    <select id="productSort" aria-label="Sort products">
+                        <option value="featured">Sort: featured</option>
+                        <option value="price-low">Price: low to high</option>
+                        <option value="price-high">Price: high to low</option>
+                        <option value="name">Name: A to Z</option>
+                        <option value="stock">In stock first</option>
+                    </select>
+                    <button id="favoritesToggle" class="favorite-filter" type="button" aria-pressed="false" title="Show saved favorites">
+                        <span aria-hidden="true">♡</span> Saved <span id="favoriteCount">0</span>
+                    </button>
+                    <button id="clearFiltersBtn" class="text-btn">All items</button>
+                </div>
+            </div>
+            <div class="result-line"><span id="resultCount">0 items</span><span>Little finds for everyday care</span></div>
+            <div id="productGrid" class="product-grid"></div>
+        </section>
+    </main>
+
+    <aside id="cartDrawer" class="cart-drawer" aria-label="Cart">
+        <div class="drawer-header">
+            <h3>Your cart</h3>
+            <button id="closeCartBtn" class="icon-close" aria-label="Close cart">×</button>
+        </div>
+        <div id="cartItems" class="cart-items"></div>
+        <div class="cart-footer">
+            <div class="cart-total-row">
+                <span>Total</span>
+                <strong id="cartTotal">MMK 0.00</strong>
+            </div>
+            <div class="cart-actions">
+                <button id="clearCartBtn" class="clear-cart-btn" type="button" disabled>Clear cart</button>
+                <button id="checkoutBtn" class="primary-btn full-width">Checkout</button>
+            </div>
+        </div>
+    </aside>
+
+    <div id="overlay" class="overlay hidden"></div>
+
+    <div id="authModal" class="modal hidden" aria-modal="true" role="dialog">
+        <div class="modal-card auth-card">
+            <button class="close-modal" data-close="authModal" aria-label="Close">×</button>
+            <div class="auth-tabs">
+                <button class="auth-tab active" data-auth-mode="login">Login</button>
+                <button class="auth-tab" data-auth-mode="register">Create Account</button>
+            </div>
+
+            <form id="loginForm" class="auth-form active-form">
+                <label>
+                    Email
+                    <input type="email" id="loginEmail" required />
+                </label>
+                <label>
+                    Password
+                    <input type="password" id="loginPassword" required />
+                </label>
+                <button type="submit" class="primary-btn full-width">Login</button>
+            </form>
+
+            <form id="registerForm" class="auth-form">
+                <label>
+                    Full Name
+                    <input type="text" id="registerName" required />
+                </label>
+                <label>
+                    Email
+                    <input type="email" id="registerEmail" required />
+                </label>
+                <label>
+                    Password
+                    <input type="password" id="registerPassword" required />
+                </label>
+                <label>
+                    Delivery Address
+                    <textarea id="registerAddress" rows="3" required></textarea>
+                </label>
+                <button type="submit" class="primary-btn full-width">Create account</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="checkoutModal" class="modal hidden" aria-modal="true" role="dialog">
+        <div class="modal-card checkout-card">
+            <button class="close-modal" data-close="checkoutModal" aria-label="Close">×</button>
+            <h3>Confirm delivery</h3>
+            <div id="checkoutSummary" class="checkout-summary"></div>
+            <label>
+                Delivery Address
+                <textarea id="checkoutAddress" rows="4" required></textarea>
+            </label>
+            <button id="placeOrderBtn" class="primary-btn full-width">Place order</button>
+        </div>
+    </div>
+
+    <div id="adminModal" class="modal hidden" aria-modal="true" role="dialog">
+        <div class="modal-card admin-card">
+            <button class="close-modal" data-close="adminModal" aria-label="Close">×</button>
+            <div id="adminContent"></div>
+        </div>
+    </div>
+
+    <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>

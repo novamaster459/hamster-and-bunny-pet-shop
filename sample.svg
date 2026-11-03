@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="160" viewBox="0 0 200 160">
+  <rect width="200" height="160" fill="#F9D9A6"/>
+  <circle cx="100" cy="80" r="46" fill="#F7A35C"/>
+  <circle cx="80" cy="72" r="8" fill="#3E2F2A"/>
+  <circle cx="120" cy="72" r="8" fill="#3E2F2A"/>
+  <path d="M80 100 Q100 112 120 100" stroke="#3E2F2A" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <text x="100" y="145" text-anchor="middle" font-family="Arial, sans-serif" font-size="20" fill="#3E2F2A">Hamster</text>
+</svg>
