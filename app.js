@@ -93,6 +93,14 @@ const defaultState = {
                 "https://images.unsplash.com/photo-1526336024174-e58f5cdd8e13?auto=format&fit=crop&w=900&q=80",
         },
     ],
+    gallery: [
+        {
+            id: "gallery-featured",
+            type: "image",
+            src: "https://images.unsplash.com/photo-1548767797-d8c844163c4c?auto=format&fit=crop&w=1200&q=85",
+            description: "Made for tiny paws",
+        },
+    ],
     users: [],
     orders: [],
     cart: [],
@@ -110,10 +118,9 @@ const elements = {
     cartItems: document.getElementById("cartItems"),
     cartTotal: document.getElementById("cartTotal"),
     sectionTitle: document.getElementById("sectionTitle"),
-    accountButton: document.getElementById("accountButton"),
     adminButton: document.getElementById("adminButton"),
-    authModal: document.getElementById("authModal"),
     checkoutModal: document.getElementById("checkoutModal"),
+    orderStatusModal: document.getElementById("orderStatusModal"),
     adminModal: document.getElementById("adminModal"),
     overlay: document.getElementById("overlay"),
     checkoutSummary: document.getElementById("checkoutSummary"),
@@ -128,7 +135,12 @@ const elements = {
     favoritesToggle: document.getElementById("favoritesToggle"),
     favoriteCount: document.getElementById("favoriteCount"),
     resultCount: document.getElementById("resultCount"),
+    heroMedia: document.getElementById("heroMedia"),
+    heroCaption: document.getElementById("heroCaption"),
+    heroCounter: document.getElementById("heroCounter"),
 };
+
+let activeGalleryIndex = 0;
 
 initialize();
 
@@ -136,15 +148,11 @@ async function initialize() {
     try {
         const sessionResponse = await fetch("/api/session");
         if (!sessionResponse.ok) throw new Error("Could not load your session.");
-        const sessionData = await sessionResponse.json();
         const serverState = await loadState();
-        const signedInCustomer = sessionData.user?.role === "customer"
-            ? sessionData.user
-            : null;
         state = {
             ...serverState,
-            users: signedInCustomer ? [signedInCustomer] : [],
-            currentUserId: signedInCustomer?.id || null,
+            users: [],
+            currentUserId: null,
             adminLoggedIn: false,
             cart: loadCart(),
         };
@@ -167,10 +175,10 @@ async function initialize() {
 
     bindEvents();
     renderTabs();
+    renderGallery();
     renderProducts();
     renderFavoritesButton();
     renderCart();
-    renderAccountButton();
     renderAdminButton();
 }
 
@@ -197,25 +205,7 @@ function bindEvents() {
             showToast("Your cart is empty.", "error");
             return;
         }
-        if (!state.currentUserId) {
-            openAuthModal("login");
-            showToast("Please log in to checkout.", "error");
-            return;
-        }
         openCheckoutModal();
-    });
-
-    document.getElementById("accountButton").addEventListener("click", () => {
-        if (state.currentUserId) {
-            fetch("/api/logout", { method: "POST" });
-            state.currentUserId = null;
-            state.adminLoggedIn = false;
-            renderAccountButton();
-            renderAdminButton();
-            showToast("You have been logged out.", "success");
-            return;
-        }
-        openAuthModal("login");
     });
 
     document.getElementById("adminButton").addEventListener("click", () => {
@@ -237,7 +227,12 @@ function bindEvents() {
 
     document.getElementById("featuredBtn").addEventListener("click", () => {
         const featured = state.products[0];
-        addToCart(featured.id);
+        if (featured) addToCart(featured.id);
+    });
+    document.getElementById("heroPrev").addEventListener("click", () => changeGallerySlide(-1));
+    document.getElementById("heroNext").addEventListener("click", () => changeGallerySlide(1));
+    document.getElementById("trackOrderButton").addEventListener("click", () => {
+        openOrderStatusModal();
     });
 
     elements.clearFiltersBtn.addEventListener("click", () => {
@@ -258,56 +253,6 @@ function bindEvents() {
         renderProducts();
     });
 
-    document.getElementById("loginForm").addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const email = document.getElementById("loginEmail").value.trim();
-        const password = document.getElementById("loginPassword").value;
-        const result = await postJson("/api/login", { email, password });
-        if (!result.ok) {
-            showToast(result.error, "error");
-            return;
-        }
-
-        const user = result.data.user;
-        updateCurrentUser(user);
-        renderAccountButton();
-        renderAdminButton();
-        closeModal("authModal");
-        showToast(`Welcome back, ${user.name}!`, "success");
-    });
-
-    document.getElementById("registerForm").addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const name = document.getElementById("registerName").value.trim();
-        const email = document.getElementById("registerEmail").value.trim();
-        const password = document.getElementById("registerPassword").value.trim();
-        const address = document.getElementById("registerAddress").value.trim();
-
-        if (!name || !email || !password || !address) {
-            showToast("Please fill in all fields including your delivery address.", "error");
-            return;
-        }
-
-        const result = await postJson("/api/register", { name, email, password, address });
-        if (!result.ok) {
-            showToast(result.error, "error");
-            return;
-        }
-
-        updateCurrentUser(result.data.user);
-        renderAccountButton();
-        renderAdminButton();
-        closeModal("authModal");
-        showToast("Account created! You can now shop and checkout.", "success");
-    });
-
-    document.querySelectorAll(".auth-tab").forEach((tab) => {
-        tab.addEventListener("click", (event) => {
-            const mode = event.currentTarget.dataset.authMode;
-            openAuthModal(mode);
-        });
-    });
-
     document.querySelectorAll(".close-modal").forEach((closeButton) => {
         closeButton.addEventListener("click", () => {
             const modalName = closeButton.dataset.close;
@@ -316,19 +261,19 @@ function bindEvents() {
     });
 
     document.getElementById("placeOrderBtn").addEventListener("click", async () => {
+        const customerName = document.getElementById("checkoutName").value.trim();
+        const phone = document.getElementById("checkoutPhone").value.trim();
+        const township = document.getElementById("checkoutTownship").value;
         const address = elements.checkoutAddress.value.trim();
-        if (!address) {
-            showToast("A delivery address is required before placing the order.", "error");
-            return;
-        }
-
-        const user = getCurrentUser();
-        if (!user) {
-            showToast("Please log in before placing an order.", "error");
+        if (!customerName || !phone || !township || !address) {
+            showToast("Enter your name, phone, Yangon township, and street address.", "error");
             return;
         }
 
         const result = await postJson("/api/orders", {
+            customerName,
+            phone,
+            township,
             address,
             items: state.cart.map((item) => ({
                 productId: item.productId,
@@ -347,7 +292,22 @@ function bindEvents() {
         renderProducts();
         renderCart();
         closeModal("checkoutModal");
-        showToast("Order placed successfully!", "success");
+        showOrderReceipt(result.data.lookupCode);
+    });
+
+    document.getElementById("orderLookupForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        await lookupOrderStatus(document.getElementById("orderLookupCode").value.trim());
+    });
+    document.getElementById("copyOrderCodeButton").addEventListener("click", async () => {
+        const code = document.getElementById("orderLookupCode").value;
+        try {
+            await navigator.clipboard.writeText(code);
+            showToast("Order lookup code copied.", "success");
+        } catch (error) {
+            console.error("Could not copy the order lookup code:", error);
+            showToast("Select and copy the lookup code shown above.", "error");
+        }
     });
 
     document.addEventListener("click", (event) => {
@@ -387,6 +347,7 @@ async function loadState() {
         ...parsed,
         categories: parsed.categories || [],
         products: parsed.products || [],
+        gallery: Array.isArray(parsed.gallery) ? parsed.gallery : [],
         users: parsed.users || [],
         orders: parsed.orders || [],
     };
@@ -421,12 +382,12 @@ async function saveState() {
     }
 }
 
-async function postJson(url, payload) {
+async function postJson(url, payload, method = "POST") {
     try {
         const response = await fetch(url, {
-            method: "POST",
+            method,
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
+            body: method === "GET" || method === "HEAD" ? undefined : JSON.stringify(payload),
         });
         const responseText = await response.text();
         let data;
@@ -440,9 +401,9 @@ async function postJson(url, payload) {
                 ok: false,
                 data: {},
                 error: response.status === 404
-                    ? "The shop API route was not found (404). Check that Netlify routes /api/* to your Flask server."
+                    ? "The shop API route was not found. Check that the PythonAnywhere app is reloaded and serving the latest code."
                     : response.status === 508
-                        ? "The shop API proxy is looping (HTTP 508). Set Netlify's SHOP_API_URL to your separate Flask backend URL, not your Netlify site URL, then redeploy."
+                        ? "The shop API returned HTTP 508. Check the hosting provider's request and error logs."
                         : `The shop API returned an unexpected response (HTTP ${response.status}). Check the Flask server connection.`,
             };
         }
@@ -450,14 +411,14 @@ async function postJson(url, payload) {
             return {
                 ok: false,
                 data,
-                error: "The shop API route was not found (404). Check that Netlify routes /api/* to your Flask server.",
+                error: "The shop API route was not found. Check that the PythonAnywhere app is reloaded and serving the latest code.",
             };
         }
         if (response.status === 508) {
             return {
                 ok: false,
                 data,
-                error: "The shop API proxy is looping (HTTP 508). Set Netlify's SHOP_API_URL to your separate Flask backend URL, not your Netlify site URL, then redeploy.",
+                error: "The shop API returned HTTP 508. Check the hosting provider's request and error logs.",
             };
         }
         return {
@@ -470,7 +431,7 @@ async function postJson(url, payload) {
         return {
             ok: false,
             data: {},
-            error: "Could not contact the shop server. Check the Netlify API proxy and Flask server URL.",
+            error: "Could not contact the shop server. Check that the PythonAnywhere site is online.",
         };
     }
 }
@@ -719,30 +680,14 @@ function getProductById(productId) {
     return state.products.find((product) => product.id === productId) || null;
 }
 
-function openAuthModal(mode = "login") {
-    closeCart();
-    elements.authModal.classList.remove("hidden");
-    elements.overlay.classList.remove("hidden");
-
-    document.querySelectorAll(".auth-tab").forEach((tab) => {
-        const isActive = tab.dataset.authMode === mode;
-        tab.classList.toggle("active", isActive);
-    });
-
-    const loginForm = document.getElementById("loginForm");
-    const registerForm = document.getElementById("registerForm");
-    loginForm.classList.toggle("active-form", mode === "login");
-    registerForm.classList.toggle("active-form", mode === "register");
-}
-
 function closeModal(modalName) {
     const modal = document.getElementById(modalName);
     if (modal) {
         modal.classList.add("hidden");
     }
 
-    const hasAnyModalOpen = !document.getElementById("authModal").classList.contains("hidden") ||
-        !document.getElementById("checkoutModal").classList.contains("hidden") ||
+    const hasAnyModalOpen = !document.getElementById("checkoutModal").classList.contains("hidden") ||
+        !document.getElementById("orderStatusModal").classList.contains("hidden") ||
         !document.getElementById("adminModal").classList.contains("hidden");
 
     if (!hasAnyModalOpen) {
@@ -756,10 +701,10 @@ function closeCart() {
 }
 
 function openCheckoutModal() {
-    const user = getCurrentUser();
-    if (!user) return;
-
-    elements.checkoutAddress.value = user.address || "";
+    document.getElementById("checkoutName").value = "";
+    document.getElementById("checkoutPhone").value = "";
+    document.getElementById("checkoutTownship").value = "";
+    elements.checkoutAddress.value = "";
     const subtotal = state.cart.reduce((sum, item) => {
         const product = getProductById(item.productId);
         return sum + (product ? product.price * item.quantity : 0);
@@ -776,9 +721,94 @@ function openCheckoutModal() {
     elements.overlay.classList.remove("hidden");
 }
 
-function renderAccountButton() {
-    const user = getCurrentUser();
-    elements.accountButton.textContent = user ? `Logout (${user.name.split(" ")[0]})` : "Login";
+function openOrderStatusModal() {
+    document.getElementById("orderReceipt").classList.add("hidden");
+    document.getElementById("copyOrderCodeButton").classList.add("hidden");
+    document.getElementById("orderLookupResult").textContent = "";
+    document.getElementById("orderLookupCode").value = "";
+    elements.orderStatusModal.classList.remove("hidden");
+    elements.overlay.classList.remove("hidden");
+}
+
+function showOrderReceipt(lookupCode) {
+    const receipt = document.getElementById("orderReceipt");
+    receipt.innerHTML = `
+      <strong>Order placed</strong>
+      <p>Your order is pending the shop's review. Save this private lookup code to check its status later:</p>
+      <code>${escapeHtml(lookupCode)}</code>
+    `;
+    receipt.classList.remove("hidden");
+    document.getElementById("copyOrderCodeButton").classList.remove("hidden");
+    document.getElementById("orderLookupCode").value = lookupCode;
+    document.getElementById("orderLookupResult").textContent = "";
+    elements.orderStatusModal.classList.remove("hidden");
+    elements.overlay.classList.remove("hidden");
+    showToast("Order placed. Save your lookup code.", "success");
+}
+
+async function lookupOrderStatus(lookupCode) {
+    const result = await postJson("/api/orders/lookup", { lookupCode });
+    const resultElement = document.getElementById("orderLookupResult");
+    if (!result.ok) {
+        resultElement.textContent = result.error;
+        return;
+    }
+
+    const order = result.data.order;
+    resultElement.innerHTML = `
+      <strong>Order status: ${escapeHtml(order.status)}</strong>
+      <p>${order.items.map((item) =>
+        `${escapeHtml(item.name)} × ${item.quantity}`
+    ).join("<br>")}</p>
+      <p>Total: ${formatMoney(order.total)} · ${escapeHtml(order.township)}</p>
+    `;
+}
+
+function renderGallery() {
+    const gallery = Array.isArray(state.gallery) ? state.gallery : [];
+    if (!gallery.length) {
+        elements.heroMedia.replaceChildren();
+        elements.heroCaption.textContent = "Our little friends and favorite finds";
+        elements.heroCounter.textContent = "";
+        document.getElementById("heroPrev").hidden = true;
+        document.getElementById("heroNext").hidden = true;
+        return;
+    }
+
+    activeGalleryIndex = ((activeGalleryIndex % gallery.length) + gallery.length) % gallery.length;
+    const item = gallery[activeGalleryIndex];
+    const media = document.createElement(item.type === "video" ? "video" : "img");
+    media.className = "hero-media";
+    media.src = item.src;
+    if (item.type === "video") {
+        media.controls = true;
+        media.playsInline = true;
+        media.preload = "metadata";
+        media.setAttribute("aria-label", item.description);
+    } else {
+        media.alt = item.description;
+    }
+    elements.heroMedia.replaceChildren(media);
+    elements.heroCaption.textContent = item.description;
+    elements.heroCounter.textContent = `${activeGalleryIndex + 1} / ${gallery.length}`;
+    document.getElementById("heroPrev").hidden = gallery.length < 2;
+    document.getElementById("heroNext").hidden = gallery.length < 2;
+}
+
+function changeGallerySlide(delta) {
+    if (!state.gallery?.length) return;
+    activeGalleryIndex = (activeGalleryIndex + delta + state.gallery.length) % state.gallery.length;
+    renderGallery();
+}
+
+function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (character) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#39;",
+    })[character]);
 }
 
 function renderAdminButton() {
@@ -797,7 +827,7 @@ function openAdminDashboard() {
           <h3>Admin login</h3>
         </div>
       </div>
-      <p>Sign in with your administrator email and password. Customer accounts cannot access the dashboard.</p>
+      <p>Sign in with your administrator email and password. Only the administrator account can access the dashboard.</p>
       <form id="adminLoginForm" class="auth-form active-form">
         <label>
           Admin email
@@ -832,7 +862,6 @@ function openAdminDashboard() {
             state.products = adminState.products;
             state.orders = adminState.orders;
             updateCurrentUser(result.data.user);
-            renderAccountButton();
             renderAdminButton();
             renderAdminDashboard();
             showToast("Admin login successful.", "success");
@@ -882,6 +911,7 @@ function chooseLocalImage() {
 function renderAdminDashboard() {
     const categories = state.categories;
     const products = state.products;
+    const gallery = state.gallery || [];
     const orders = state.orders;
     const adminUser = getCurrentUser();
 
@@ -979,6 +1009,43 @@ function renderAdminDashboard() {
       </div>
     </div>
 
+        <div class="admin-section gallery-admin-section">
+            <h4>Homepage photos and videos (${gallery.length}/26)</h4>
+            <p>Add up to 26 photos or videos. Each item needs a short description shown below it on the homepage. Images and videos can be up to 50 MB each.</p>
+            <form id="galleryForm" class="admin-form">
+                <label>
+                    Photo or video
+                    <input id="galleryFileInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm" required />
+                </label>
+                <label>
+                    Description
+                    <textarea id="galleryDescriptionInput" rows="2" maxlength="500" required></textarea>
+                </label>
+                <button class="primary-btn" type="submit" ${gallery.length >= 26 ? "disabled" : ""}>Upload to homepage</button>
+            </form>
+            <div class="admin-list gallery-admin-list">
+                ${gallery.map((item, index) => `
+                    <div class="admin-item gallery-admin-item">
+                        <div class="gallery-admin-preview">
+                            ${item.type === "video"
+                                ? `<video src="${escapeHtml(item.src)}" controls preload="metadata"></video>`
+                                : `<img src="${escapeHtml(item.src)}" alt="${escapeHtml(item.description)}" />`}
+                        </div>
+                        <label>
+                            Description
+                            <textarea data-gallery-description="${escapeHtml(item.id)}" maxlength="500" required>${escapeHtml(item.description)}</textarea>
+                        </label>
+                        <div class="admin-actions">
+                            <button class="small-btn" type="button" data-gallery-move="${escapeHtml(item.id)}" data-delta="-1" ${index === 0 ? "disabled" : ""}>Move left</button>
+                            <button class="small-btn" type="button" data-gallery-move="${escapeHtml(item.id)}" data-delta="1" ${index === gallery.length - 1 ? "disabled" : ""}>Move right</button>
+                            <button class="small-btn" type="button" data-gallery-delete="${escapeHtml(item.id)}">Delete</button>
+                        </div>
+                    </div>
+                `).join("") || '<div class="empty-note">No homepage photos or videos yet.</div>'}
+            </div>
+            ${gallery.length ? '<button id="saveGalleryDescriptions" class="primary-btn" type="button">Save descriptions</button>' : ""}
+        </div>
+
         <div class="admin-section" style="margin-top: 1rem;">
             <h4>Admin account</h4>
             <form id="adminCredentialsForm" class="admin-form">
@@ -1005,8 +1072,9 @@ function renderAdminDashboard() {
           <table class="orders-table">
             <thead>
               <tr>
-                <th>User</th>
-                <th>Address</th>
+              <th>Customer</th>
+              <th>Phone</th>
+              <th>Township / address</th>
                 <th>Items</th>
                 <th>Total</th>
                 <th>Status</th>
@@ -1018,23 +1086,24 @@ function renderAdminDashboard() {
                     (order) => `
                     <tr>
                       <td>
-                        ${order.userName}<br />
-                        <small>${order.userEmail}</small>
+                        ${escapeHtml(order.userName)}
                       </td>
-                      <td>${order.address}</td>
+                      <td>${escapeHtml(order.phone || "")}</td>
+                      <td>${escapeHtml(order.township || "")}<br />${escapeHtml(order.address)}</td>
                       <td>
                         ${order.items
-                            .map((item) => `${item.name} x${item.quantity}`)
+                            .map((item) => `${escapeHtml(item.name)} x${item.quantity}`)
                             .join("<br />")}
                       </td>
                       <td>${formatMoney(order.total)}</td>
                       <td>
-                        <span class="status-badge ${order.status.toLowerCase()}">${order.status}</span>
-                        <div style="margin-top: 0.5rem;">
-                          <button class="small-btn" type="button" data-toggle-order-status="${order.id}">
-                            ${order.status === "Pending" ? "Mark as Shipped" : "Mark as Pending"}
-                          </button>
-                        </div>
+                        <span class="status-badge ${escapeHtml(order.status.toLowerCase())}">${escapeHtml(order.status)}</span>
+                        ${order.status === "Pending" ? `
+                          <div class="admin-actions" style="margin-top: 0.5rem;">
+                            <button class="small-btn" type="button" data-order-decision="${escapeHtml(order.id)}" data-decision="Accepted">Accept</button>
+                            <button class="small-btn" type="button" data-order-decision="${escapeHtml(order.id)}" data-decision="Denied">Deny</button>
+                          </div>
+                        ` : ""}
                       </td>
                     </tr>
                   `,
@@ -1052,7 +1121,6 @@ function renderAdminDashboard() {
         state.adminLoggedIn = false;
         state.currentUserId = null;
         state.orders = [];
-        renderAccountButton();
         renderAdminButton();
         closeModal("adminModal");
         showToast("Admin logged out.", "success");
@@ -1071,9 +1139,92 @@ function renderAdminDashboard() {
         }
 
         updateCurrentUser(result.data.user);
-        renderAccountButton();
         renderAdminDashboard();
         showToast("Admin login updated.", "success");
+    });
+
+    document.getElementById("galleryForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const file = document.getElementById("galleryFileInput").files[0];
+        const description = document.getElementById("galleryDescriptionInput").value.trim();
+        if (!file || file.size > 50 * 1024 * 1024) {
+            showToast("Choose a media file that is 50 MB or smaller.", "error");
+            return;
+        }
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("description", description);
+        try {
+            const response = await fetch("/api/admin/gallery", {
+                method: "POST",
+                body: formData,
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || "Could not upload gallery media.");
+            state.gallery = data.gallery;
+            renderGallery();
+            renderAdminDashboard();
+            showToast("Homepage media uploaded.", "success");
+        } catch (error) {
+            showToast(error.message || "Could not upload gallery media.", "error");
+        }
+    });
+
+    const saveDescriptionsButton = document.getElementById("saveGalleryDescriptions");
+    if (saveDescriptionsButton) {
+        saveDescriptionsButton.addEventListener("click", async () => {
+            const gallery = state.gallery.map((item) => ({
+                id: item.id,
+                description: document.querySelector(`[data-gallery-description="${CSS.escape(item.id)}"]`).value.trim(),
+            }));
+            const result = await postJson("/api/admin/gallery", { gallery }, "PUT");
+            if (!result.ok) {
+                showToast(result.error, "error");
+                return;
+            }
+            state.gallery = result.data.gallery;
+            renderGallery();
+            renderAdminDashboard();
+            showToast("Gallery descriptions saved.", "success");
+        });
+    }
+
+    document.querySelectorAll("[data-gallery-move]").forEach((button) => {
+        button.addEventListener("click", async () => {
+            const index = state.gallery.findIndex((item) => item.id === button.dataset.galleryMove);
+            const target = index + Number(button.dataset.delta);
+            if (index < 0 || target < 0 || target >= state.gallery.length) return;
+            [state.gallery[index], state.gallery[target]] = [state.gallery[target], state.gallery[index]];
+            const result = await postJson("/api/admin/gallery", {
+                gallery: state.gallery.map(({ id, description }) => ({ id, description })),
+            }, "PUT");
+            if (!result.ok) {
+                showToast(result.error, "error");
+                return;
+            }
+            state.gallery = result.data.gallery;
+            renderGallery();
+            renderAdminDashboard();
+        });
+    });
+
+    document.querySelectorAll("[data-gallery-delete]").forEach((button) => {
+        button.addEventListener("click", async () => {
+            const result = await postJson(
+                `/api/admin/gallery/${encodeURIComponent(button.dataset.galleryDelete)}`,
+                {},
+                "DELETE",
+            );
+            if (!result.ok) {
+                showToast(result.error, "error");
+                return;
+            }
+            state.gallery = result.data.gallery;
+            activeGalleryIndex = Math.min(activeGalleryIndex, state.gallery.length - 1);
+            renderGallery();
+            renderAdminDashboard();
+            showToast("Homepage media deleted.", "success");
+        });
     });
 
     document.getElementById("categoryForm").addEventListener("submit", (event) => {
@@ -1217,15 +1368,27 @@ function renderAdminDashboard() {
         });
     });
 
-    document.querySelectorAll("[data-toggle-order-status]").forEach((button) => {
-        button.addEventListener("click", () => {
-            const orderId = button.dataset.toggleOrderStatus;
-            const order = state.orders.find((entry) => entry.id === orderId);
-            if (!order) return;
-            order.status = order.status === "Pending" ? "Shipped" : "Pending";
-            saveState();
+    document.querySelectorAll("[data-order-decision]").forEach((button) => {
+        button.addEventListener("click", async () => {
+            const orderId = button.dataset.orderDecision;
+            const result = await postJson(`/api/admin/orders/${encodeURIComponent(orderId)}/decision`, {
+                decision: button.dataset.decision,
+            });
+            if (!result.ok) {
+                showToast(result.error, "error");
+                return;
+            }
+            const index = state.orders.findIndex((entry) => entry.id === orderId);
+            if (index >= 0) state.orders[index] = result.data.order;
+            try {
+                const shared = await loadState();
+                state.products = shared.products;
+                renderProducts();
+            } catch (error) {
+                console.error("Could not refresh inventory after order decision:", error);
+            }
             renderAdminDashboard();
-            showToast(`Order marked as ${order.status}.`, "success");
+            showToast(`Order ${result.data.order.status.toLowerCase()}.`, "success");
         });
     });
 }
@@ -1250,8 +1413,8 @@ window.addEventListener("keydown", (event) => {
 
     if (event.key === "Escape") {
         closeCart();
-        closeModal("authModal");
         closeModal("checkoutModal");
+        closeModal("orderStatusModal");
         closeModal("adminModal");
         elements.overlay.classList.add("hidden");
     }

@@ -1,5 +1,44 @@
 # Hosting the shop
 
+## Updating the PythonAnywhere site
+
+The shop can run as one Flask web app on PythonAnywhere; Netlify is not needed
+for this setup. After pushing code changes to GitHub, update the existing
+PythonAnywhere checkout from its Bash console:
+
+```sh
+workon hamster-shop
+cd ~/hamster-and-bunny-pet-shop
+git pull origin main
+pip install -r requirements.txt
+```
+
+Then open the PythonAnywhere **Web** tab and click **Reload**. Keep the existing
+WSGI settings for `APP_ENV`, `FLASK_SECRET_KEY`, and `SHOP_DATA_FILE`. Gallery
+uploads are stored beside the configured data file in a `media` folder, so for
+`/home/websiter/.local/share/hamster-shop/shop_data.json` they are stored under
+`/home/websiter/.local/share/hamster-shop/media`.
+
+Create the hosted administrator once from a Bash console with the same data
+file and secret configured in the WSGI file:
+
+```sh
+workon hamster-shop
+cd ~/hamster-and-bunny-pet-shop
+export APP_ENV=production
+export FLASK_SECRET_KEY='the same private value used in the WSGI file'
+export SHOP_DATA_FILE=/home/websiter/.local/share/hamster-shop/shop_data.json
+flask --app server create-admin
+```
+
+Do not share or commit the secret. Reuse the same value configured in WSGI.
+
+The homepage gallery supports up to 26 image/video uploads (50 MB each).
+Uploads are public media served from the app and persist beside the shop data.
+Guest checkout requires a Yangon township, contact name and phone number.
+Customers receive a private order lookup code; admins accept or deny orders
+from the dashboard.
+
 The site is deployed to Netlify as static files. Netlify's `/api/*` route is a
 same-origin proxy to the Flask API, so login cookies work without exposing
 cross-origin API access. The Flask server must run separately on a persistent

@@ -28,7 +28,7 @@
 
         <div class="header-actions">
             <button id="adminButton" class="secondary-btn">Admin</button>
-            <button id="accountButton" class="secondary-btn">Login</button>
+            <button id="trackOrderButton" class="secondary-btn" type="button">Track order</button>
             <button id="cartButton" class="cart-btn" aria-label="Shopping cart">
                 <span class="cart-icon">🛒</span>
                 <span id="cartCount" class="cart-count">0</span>
@@ -50,9 +50,14 @@
                 </div>
                 <div class="hero-note"><span>✓</span> Cozy essentials, friendly prices, happy homes</div>
             </div>
-            <div class="hero-visual">
-                <img class="hero-photo" src="https://images.unsplash.com/photo-1548767797-d8c844163c4c?auto=format&fit=crop&w=1200&q=85" alt="A curious hamster enjoying a quiet moment" />
-                <div class="photo-caption"><span class="caption-mark">01</span><span>Made for tiny paws</span></div>
+            <div class="hero-gallery">
+                <div class="hero-visual">
+                    <div id="heroMedia" class="hero-media-frame"></div>
+                    <button id="heroPrev" class="hero-arrow hero-arrow-prev" type="button" aria-label="Previous photo or video">‹</button>
+                    <button id="heroNext" class="hero-arrow hero-arrow-next" type="button" aria-label="Next photo or video">›</button>
+                </div>
+                <p id="heroCaption" class="hero-caption"></p>
+                <div id="heroCounter" class="hero-counter" aria-live="polite"></div>
             </div>
         </section>
 
@@ -106,58 +111,60 @@
 
     <div id="overlay" class="overlay hidden"></div>
 
-    <div id="authModal" class="modal hidden" aria-modal="true" role="dialog">
-        <div class="modal-card auth-card">
-            <button class="close-modal" data-close="authModal" aria-label="Close">×</button>
-            <div class="auth-tabs">
-                <button class="auth-tab active" data-auth-mode="login">Login</button>
-                <button class="auth-tab" data-auth-mode="register">Create Account</button>
-            </div>
-
-            <form id="loginForm" class="auth-form active-form">
-                <label>
-                    Email
-                    <input type="email" id="loginEmail" required />
-                </label>
-                <label>
-                    Password
-                    <input type="password" id="loginPassword" required />
-                </label>
-                <button type="submit" class="primary-btn full-width">Login</button>
-            </form>
-
-            <form id="registerForm" class="auth-form">
-                <label>
-                    Full Name
-                    <input type="text" id="registerName" required />
-                </label>
-                <label>
-                    Email
-                    <input type="email" id="registerEmail" required />
-                </label>
-                <label>
-                    Password
-                    <input type="password" id="registerPassword" required />
-                </label>
-                <label>
-                    Delivery Address
-                    <textarea id="registerAddress" rows="3" required></textarea>
-                </label>
-                <button type="submit" class="primary-btn full-width">Create account</button>
-            </form>
-        </div>
-    </div>
-
     <div id="checkoutModal" class="modal hidden" aria-modal="true" role="dialog">
         <div class="modal-card checkout-card">
             <button class="close-modal" data-close="checkoutModal" aria-label="Close">×</button>
-            <h3>Confirm delivery</h3>
+            <h3>Guest checkout</h3>
             <div id="checkoutSummary" class="checkout-summary"></div>
             <label>
-                Delivery Address
-                <textarea id="checkoutAddress" rows="4" required></textarea>
+                Your name
+                <input id="checkoutName" type="text" autocomplete="name" maxlength="120" required />
             </label>
+            <label>
+                Phone number
+                <input id="checkoutPhone" type="tel" autocomplete="tel" maxlength="40" required />
+            </label>
+            <label>
+                Yangon township
+                <select id="checkoutTownship" required>
+                    <option value="">Select your township</option>
+                    <option>Ahlone</option><option>Bahan</option><option>Botataung</option>
+                    <option>Dagon</option><option>Dagon Seikkan</option><option>Dawbon</option>
+                    <option>East Dagon</option><option>Hlaing</option><option>Hlaingthaya</option>
+                    <option>Hlaingthaya East</option><option>Hlaingthaya West</option>
+                    <option>Insein</option><option>Kamayut</option><option>Kyauktada</option>
+                    <option>Kyimyindaing</option><option>Lanmadaw</option><option>Latha</option>
+                    <option>Mayangone</option><option>Mingaladon</option><option>Mingala Taungnyunt</option>
+                    <option>North Dagon</option><option>North Okkalapa</option><option>Pabedan</option>
+                    <option>Pazundaung</option><option>Sanchaung</option><option>Seikkan</option>
+                    <option>Shwepyitha</option><option>South Dagon</option><option>South Okkalapa</option>
+                    <option>Tamwe</option><option>Thaketa</option><option>Thingangyun</option>
+                    <option>Yankin</option>
+                </select>
+            </label>
+            <label>
+                Street address and landmarks
+                <textarea id="checkoutAddress" rows="3" maxlength="500" required></textarea>
+            </label>
+            <p class="delivery-note">Delivery is currently available only within Yangon. Choose your township above.</p>
             <button id="placeOrderBtn" class="primary-btn full-width">Place order</button>
+        </div>
+    </div>
+
+    <div id="orderStatusModal" class="modal hidden" aria-modal="true" role="dialog">
+        <div class="modal-card checkout-card">
+            <button class="close-modal" data-close="orderStatusModal" aria-label="Close">×</button>
+            <h3>Track your order</h3>
+            <div id="orderReceipt" class="order-receipt hidden"></div>
+            <button id="copyOrderCodeButton" class="secondary-btn hidden" type="button">Copy lookup code</button>
+            <form id="orderLookupForm" class="auth-form active-form">
+                <label>
+                    Private order lookup code
+                    <input id="orderLookupCode" type="text" autocomplete="off" required />
+                </label>
+                <button class="primary-btn full-width" type="submit">Check order status</button>
+            </form>
+            <div id="orderLookupResult" class="order-lookup-result" aria-live="polite"></div>
         </div>
     </div>
 

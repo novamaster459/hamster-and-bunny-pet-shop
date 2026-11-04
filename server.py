@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 from pathlib import Path
 import secrets
@@ -7,6 +8,7 @@ from datetime import datetime
 
 import click
 from flask import Flask, jsonify, request, send_from_directory, session
+from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.security import check_password_hash, generate_password_hash
 
 APP_DIR = Path(__file__).resolve().parent
@@ -23,7 +25,46 @@ app.config.update(
     SESSION_COOKIE_SECURE=APP_ENV == "production",
 )
 DATA_FILE = Path(os.environ.get("SHOP_DATA_FILE", APP_DIR / "shop_data.json"))
+MEDIA_DIR = Path(os.environ.get("SHOP_MEDIA_DIR", DATA_FILE.parent / "media"))
+MAX_MEDIA_SIZE = 50 * 1024 * 1024
+MAX_GALLERY_ITEMS = 26
+ALLOWED_TOWNSHIPS = {
+    "Ahlone",
+    "Bahan",
+    "Botataung",
+    "Dagon",
+    "Dagon Seikkan",
+    "Dawbon",
+    "East Dagon",
+    "Hlaing",
+    "Hlaingthaya",
+    "Hlaingthaya East",
+    "Hlaingthaya West",
+    "Insein",
+    "Kamayut",
+    "Kyauktada",
+    "Kyimyindaing",
+    "Lanmadaw",
+    "Latha",
+    "Mayangone",
+    "Mingaladon",
+    "Mingala Taungnyunt",
+    "North Dagon",
+    "North Okkalapa",
+    "Pabedan",
+    "Pazundaung",
+    "Sanchaung",
+    "Seikkan",
+    "Shwepyitha",
+    "South Dagon",
+    "South Okkalapa",
+    "Tamwe",
+    "Thaketa",
+    "Thingangyun",
+    "Yankin",
+}
 STATE_LOCK = threading.RLock()
+app.config["MAX_CONTENT_LENGTH"] = MAX_MEDIA_SIZE + 1024 * 1024
 
 DEFAULT_STATE = {
     "activeCategoryId": "cat-hamsters",
@@ -109,6 +150,14 @@ DEFAULT_STATE = {
             "image": "https://images.unsplash.com/photo-1526336024174-e58f5cdd8e13?auto=format&fit=crop&w=900&q=80",
         },
     ],
+    "gallery": [
+        {
+            "id": "gallery-featured",
+            "type": "image",
+            "src": "https://images.unsplash.com/photo-1548767797-d8c844163c4c?auto=format&fit=crop&w=1200&q=85",
+            "description": "Made for tiny paws",
+        },
+    ],
     "users": [],
     "orders": [],
     "cart": [],
@@ -189,6 +238,12 @@ def public_state(include_orders=False):
     state_data["users"] = []
     if not include_orders:
         state_data["orders"] = []
+    else:
+        state_data["orders"] = [
+            {key: value for key, value in order.items()
+             if key != "lookupTokenHash"}
+            for order in state_data["orders"]
+        ]
     state_data["currentUserId"] = None
     state_data["adminLoggedIn"] = False
     state_data["cart"] = []
@@ -205,6 +260,18 @@ def verify_password(user, password):
 def current_user():
     user_id = session.get("user_id")
     return next((user for user in load_state()["users"] if user["id"] == user_id), None)
+
+
+def is_admin():
+    user = current_user()
+    return bool(user and user.get("role") == "admin")
+
+
+def request_entity_too_large(_error):
+    return jsonify({"error": "Uploads must be 50 MB or smaller."}), 413
+
+
+app.register_error_handler(RequestEntityTooLarge, request_entity_too_large)
 
 
 @app.route("/")
@@ -229,7 +296,7 @@ def api_state():
         return jsonify({"error": "Invalid state payload."}), 400
 
     state_data = load_state()
-    for key in ("categories", "products", "orders"):
+    for key in ("categories", "products"):
         if isinstance(payload.get(key), list):
             state_data[key] = payload[key]
     save_state(state_data)
@@ -239,36 +306,14 @@ def api_state():
 @app.route("/api/session", methods=["GET"])
 def api_session():
     user = current_user()
-    if user and user.get("role") == "admin":
+    if user:
         session.clear()
-        user = None
-    return jsonify({"user": public_user(user) if user else None})
+    return jsonify({"user": None})
 
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
-    payload = request.get_json(silent=True) or {}
-    email = str(payload.get("email", "")).strip().lower()
-    password = str(payload.get("password", ""))
-    state_data = load_state()
-    user = next(
-        (entry for entry in state_data["users"]
-         if entry["email"].lower() == email),
-        None,
-    )
-    if not user or not verify_password(user, password):
-        return jsonify({"error": "Invalid email or password."}), 401
-    if user.get("role") == "admin":
-        return jsonify({
-            "error": "Use the Admin button to sign in as an administrator."
-        }), 403
-
-    if not user["password"].startswith(("scrypt:", "pbkdf2:")):
-        user["password"] = generate_password_hash(password)
-        save_state(state_data)
-    session.clear()
-    session["user_id"] = user["id"]
-    return jsonify({"user": public_user(user)})
+    return jsonify({"error": "Customer accounts are no longer supported."}), 410
 
 
 @app.route("/api/admin/login", methods=["POST"])
@@ -297,31 +342,7 @@ def api_admin_login():
 
 @app.route("/api/register", methods=["POST"])
 def api_register():
-    payload = request.get_json(silent=True) or {}
-    name = str(payload.get("name", "")).strip()
-    email = str(payload.get("email", "")).strip()
-    password = str(payload.get("password", ""))
-    address = str(payload.get("address", "")).strip()
-    if not all((name, email, password, address)):
-        return jsonify({"error": "Please fill in all fields."}), 400
-
-    state_data = load_state()
-    if any(user["email"].lower() == email.lower() for user in state_data["users"]):
-        return jsonify({"error": "That email is already registered."}), 409
-
-    user = {
-        "id": f"user-{secrets.token_hex(8)}",
-        "name": name,
-        "email": email,
-        "password": generate_password_hash(password),
-        "address": address,
-        "role": "customer",
-    }
-    state_data["users"].append(user)
-    save_state(state_data)
-    session.clear()
-    session["user_id"] = user["id"]
-    return jsonify({"user": public_user(user)}), 201
+    return jsonify({"error": "Customer registration is no longer supported."}), 410
 
 
 @app.route("/api/logout", methods=["POST"])
@@ -365,53 +386,247 @@ def api_admin_credentials():
     return jsonify({"user": public_user(updated_user)})
 
 
-@app.route("/api/orders", methods=["POST"])
-def api_create_order():
-    user = current_user()
-    if not user or user.get("role") != "customer":
-        return jsonify({"error": "Please log in before placing an order."}), 401
-
-    payload = request.get_json(silent=True) or {}
-    address = str(payload.get("address", "")).strip()
-    requested_items = payload.get("items")
-    if not address or not isinstance(requested_items, list) or not requested_items:
-        return jsonify({"error": "Order address and items are required."}), 400
+@app.route("/api/admin/gallery", methods=["POST", "PUT"])
+def api_admin_gallery():
+    if not is_admin():
+        return jsonify({"error": "Admin login required."}), 401
 
     state_data = load_state()
-    products = {product["id"]: product for product in state_data["products"]}
-    items = []
-    total = 0
-    for requested in requested_items:
-        product = products.get(requested.get("productId"))
-        quantity = requested.get("quantity")
-        if not product or not isinstance(quantity, int) or quantity < 1:
-            return jsonify({"error": "The order contains an invalid item."}), 400
-        if quantity > product["stock"]:
-            return jsonify({"error": f"Not enough stock for {product['name']}."}), 400
-        items.append({
-            "productId": product["id"],
-            "name": product["name"],
-            "price": product["price"],
-            "quantity": quantity,
-        })
-        total += product["price"] * quantity
+    gallery = state_data.get("gallery", [])
+    if not isinstance(gallery, list):
+        gallery = []
 
-    order = {
-        "id": f"order-{secrets.token_hex(8)}",
-        "userId": user["id"],
-        "userName": user["name"],
-        "userEmail": user["email"],
-        "items": items,
-        "total": total,
-        "status": "Pending",
-        "address": address,
-        "createdAt": datetime.now().astimezone().isoformat(),
-    }
-    for item in items:
-        products[item["productId"]]["stock"] -= item["quantity"]
-    state_data["orders"].insert(0, order)
+    if request.method == "POST":
+        uploaded_file = request.files.get("file")
+        description = request.form.get("description", "").strip()
+        if not uploaded_file or not uploaded_file.filename:
+            return jsonify({"error": "Choose an image or video to upload."}), 400
+        if len(gallery) >= MAX_GALLERY_ITEMS:
+            return jsonify({"error": "The homepage gallery can contain at most 26 items."}), 400
+        if not description or len(description) > 500:
+            return jsonify({"error": "Enter a description of 1 to 500 characters."}), 400
+
+        extension = Path(uploaded_file.filename).suffix.lower()
+        image_extensions = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+        video_extensions = {".mp4", ".webm"}
+        content_type = uploaded_file.mimetype.lower()
+        if extension in image_extensions and content_type.startswith("image/"):
+            media_type = "image"
+        elif extension in video_extensions and content_type.startswith("video/"):
+            media_type = "video"
+        else:
+            return jsonify({
+                "error": "Use a JPG, PNG, WebP, or GIF image, or an MP4/WebM video."
+            }), 400
+
+        MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+        media_id = f"gallery-{secrets.token_hex(12)}"
+        filename = f"{media_id}{extension}"
+        uploaded_file.save(MEDIA_DIR / filename)
+        item = {
+            "id": media_id,
+            "type": media_type,
+            "src": f"/uploads/{filename}",
+            "description": description,
+        }
+        gallery.append(item)
+        state_data["gallery"] = gallery
+        save_state(state_data)
+        return jsonify({"gallery": gallery, "item": item}), 201
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get("gallery"), list):
+        return jsonify({"error": "Invalid gallery update."}), 400
+    requested_gallery = payload["gallery"]
+    if len(requested_gallery) != len(gallery):
+        return jsonify({"error": "Gallery items cannot be added or removed with this update."}), 400
+
+    existing_by_id = {item.get("id"): item for item in gallery if isinstance(item, dict)}
+    reordered = []
+    for requested in requested_gallery:
+        if not isinstance(requested, dict):
+            return jsonify({"error": "Invalid gallery item."}), 400
+        item = existing_by_id.get(requested.get("id"))
+        description = requested.get("description")
+        if (
+            not item
+            or not isinstance(description, str)
+            or not description.strip()
+            or len(description.strip()) > 500
+            or requested.get("id") in {entry.get("id") for entry in reordered}
+        ):
+            return jsonify({"error": "Invalid gallery item or description."}), 400
+        reordered.append({**item, "description": description.strip()})
+    if {item["id"] for item in reordered} != set(existing_by_id):
+        return jsonify({"error": "Gallery item order is incomplete."}), 400
+
+    state_data["gallery"] = reordered
     save_state(state_data)
-    return jsonify({"order": order, "state": public_state()}), 201
+    return jsonify({"gallery": reordered})
+
+
+@app.route("/api/admin/gallery/<item_id>", methods=["DELETE"])
+def api_admin_delete_gallery_item(item_id):
+    if not is_admin():
+        return jsonify({"error": "Admin login required."}), 401
+
+    state_data = load_state()
+    gallery = state_data.get("gallery", [])
+    item = next((entry for entry in gallery if entry.get("id") == item_id), None)
+    if not item:
+        return jsonify({"error": "Gallery item not found."}), 404
+
+    state_data["gallery"] = [
+        entry for entry in gallery if entry.get("id") != item_id
+    ]
+    save_state(state_data)
+    filename = Path(item.get("src", "")).name
+    if filename:
+        (MEDIA_DIR / filename).unlink(missing_ok=True)
+    return jsonify({"gallery": state_data["gallery"]})
+
+
+@app.route("/api/orders", methods=["POST"])
+def api_create_order():
+    payload = request.get_json(silent=True) or {}
+    customer_name = str(payload.get("customerName", "")).strip()
+    phone = str(payload.get("phone", "")).strip()
+    address = str(payload.get("address", "")).strip()
+    township = str(payload.get("township", "")).strip()
+    requested_items = payload.get("items")
+    if (
+        not customer_name
+        or len(customer_name) > 120
+        or not phone
+        or len(phone) > 40
+        or not address
+        or len(address) > 500
+        or not township
+    ):
+        return jsonify({"error": "Name, phone, township, and street address are required."}), 400
+    if township not in ALLOWED_TOWNSHIPS:
+        return jsonify({"error": "We currently deliver only within Yangon townships."}), 400
+    if not isinstance(requested_items, list) or not requested_items or len(requested_items) > 50:
+        return jsonify({"error": "The order must contain between 1 and 50 items."}), 400
+
+    with STATE_LOCK:
+        state_data = load_state()
+        products = {product["id"]: product for product in state_data["products"]}
+        quantities = {}
+        for requested in requested_items:
+            if not isinstance(requested, dict):
+                return jsonify({"error": "The order contains an invalid item."}), 400
+            product_id = requested.get("productId")
+            quantity = requested.get("quantity")
+            if product_id not in products or type(quantity) is not int or quantity < 1:
+                return jsonify({"error": "The order contains an invalid item."}), 400
+            quantities[product_id] = quantities.get(product_id, 0) + quantity
+
+        items = []
+        total = 0.0
+        for product_id, quantity in quantities.items():
+            product = products[product_id]
+            if quantity > product["stock"]:
+                return jsonify({"error": f"Not enough stock for {product['name']}."}), 400
+            items.append({
+                "productId": product["id"],
+                "name": product["name"],
+                "price": product["price"],
+                "quantity": quantity,
+            })
+            total += product["price"] * quantity
+
+        lookup_code = secrets.token_urlsafe(24)
+        order = {
+            "id": f"order-{secrets.token_hex(8)}",
+            "userId": None,
+            "userName": customer_name,
+            "userEmail": "",
+            "phone": phone,
+            "items": items,
+            "total": total,
+            "status": "Pending",
+            "address": address,
+            "township": township,
+            "lookupTokenHash": hashlib.sha256(lookup_code.encode("utf-8")).hexdigest(),
+            "createdAt": datetime.now().astimezone().isoformat(),
+        }
+        for item in items:
+            products[item["productId"]]["stock"] -= item["quantity"]
+        state_data["orders"].insert(0, order)
+        save_state(state_data)
+    public_order = {
+        key: value for key, value in order.items() if key != "lookupTokenHash"
+    }
+    return jsonify({
+        "order": public_order,
+        "lookupCode": lookup_code,
+        "state": public_state(),
+    }), 201
+
+
+@app.route("/api/orders/lookup", methods=["POST"])
+def api_lookup_order():
+    payload = request.get_json(silent=True) or {}
+    lookup_code = str(payload.get("lookupCode", "")).strip()
+    if not lookup_code or len(lookup_code) > 128:
+        return jsonify({"error": "Enter a valid order lookup code."}), 400
+    lookup_hash = hashlib.sha256(lookup_code.encode("utf-8")).hexdigest()
+    order = next(
+        (
+            entry for entry in load_state()["orders"]
+            if secrets.compare_digest(
+                str(entry.get("lookupTokenHash", "")), lookup_hash
+            )
+        ),
+        None,
+    )
+    if not order:
+        return jsonify({"error": "No order was found for that lookup code."}), 404
+    return jsonify({
+        "order": {
+            "id": order["id"],
+            "status": order["status"],
+            "items": order["items"],
+            "total": order["total"],
+            "createdAt": order["createdAt"],
+            "township": order["township"],
+        }
+    })
+
+
+@app.route("/api/admin/orders/<order_id>/decision", methods=["POST"])
+def api_admin_order_decision(order_id):
+    if not is_admin():
+        return jsonify({"error": "Admin login required."}), 401
+    payload = request.get_json(silent=True) or {}
+    decision = payload.get("decision")
+    if decision not in {"Accepted", "Denied"}:
+        return jsonify({"error": "Choose Accepted or Denied."}), 400
+
+    with STATE_LOCK:
+        state_data = load_state()
+        order = next(
+            (entry for entry in state_data["orders"] if entry["id"] == order_id),
+            None,
+        )
+        if not order:
+            return jsonify({"error": "Order not found."}), 404
+        if order["status"] != "Pending":
+            return jsonify({"error": "Only pending orders can be decided."}), 409
+        order["status"] = decision
+        if decision == "Denied":
+            products = {product["id"]: product for product in state_data["products"]}
+            for item in order["items"]:
+                product = products.get(item["productId"])
+                if product:
+                    product["stock"] += item["quantity"]
+        save_state(state_data)
+
+    public_order = {
+        key: value for key, value in order.items() if key != "lookupTokenHash"
+    }
+    return jsonify({"order": public_order})
 
 
 @app.route("/<path:filename>")
@@ -419,6 +634,11 @@ def assets(filename):
     if filename not in {"index.html", "styles.css", "app.js", "sample.svg"}:
         return jsonify({"error": "Not found."}), 404
     return send_from_directory(APP_DIR, filename)
+
+
+@app.route("/uploads/<path:filename>")
+def uploaded_media(filename):
+    return send_from_directory(MEDIA_DIR, filename)
 
 
 @app.cli.command("create-admin")
