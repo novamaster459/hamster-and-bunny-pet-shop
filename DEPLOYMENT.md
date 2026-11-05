@@ -19,8 +19,10 @@ uploads are stored beside the configured data file in a `media` folder, so for
 `/home/websiter/.local/share/hamster-shop/shop_data.json` they are stored under
 `/home/websiter/.local/share/hamster-shop/media`.
 
-Create the hosted administrator once from a Bash console with the same data
-file and secret configured in the WSGI file:
+To reset the password for the existing hosted admin, run these commands in the
+PythonAnywhere Bash console. Use the same secret and data-file path as the
+WSGI file, and replace the example admin email with the email used for that
+admin account:
 
 ```sh
 workon hamster-shop
@@ -28,10 +30,15 @@ cd ~/hamster-and-bunny-pet-shop
 export APP_ENV=production
 export FLASK_SECRET_KEY='the same private value used in the WSGI file'
 export SHOP_DATA_FILE=/home/websiter/.local/share/hamster-shop/shop_data.json
-flask --app server create-admin
+flask --app server set-admin-password --email admin@example.com
 ```
 
-Do not share or commit the secret. Reuse the same value configured in WSGI.
+Enter and confirm a new password when prompted. The email stays the same. If
+you do not remember the admin email, check the existing account information
+from the hosted `shop_data.json`; do not share that file because it contains
+customer data and password hashes. To create a first admin on a new data file,
+use `flask --app server create-admin` instead. Do not share or commit the
+secret.
 
 The homepage gallery supports up to 26 image/video uploads (50 MB each).
 Uploads are public media served from the app and persist beside the shop data.
