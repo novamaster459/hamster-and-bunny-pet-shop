@@ -42,28 +42,20 @@ password hashes.
 
 ### Administrator account
 
-If the data file has no administrator, the server creates the built-in
-first-run admin at startup: `maythu@gmail.com` with the password chosen for
-this shop (its scrypt hash lives in `server.py`). Change the email or password
-from the admin dashboard after signing in.
+The server writes the administrator account into the shop data every time it
+starts. Without host variables it uses the built-in account `maythu@gmail.com`
+(its scrypt password hash lives in `server.py`), so a fresh container can sign
+in immediately.
 
 Set `SHOP_ADMIN_EMAIL` and `SHOP_ADMIN_PASSWORD` (or `ADMIN_EMAIL` /
-`ADMIN_PASSWORD`) to seed a different account instead; the password must be at
-least 12 characters. Existing administrators are never overwritten, so password
-changes made in the app survive restarts.
+`ADMIN_PASSWORD`) to use different credentials; the password must be at least
+12 characters. Because the account is re-applied on each start, changing the
+login from the admin dashboard does not survive a restart — update the host
+variables instead. The `set-admin-password` CLI also only lasts until the next
+start.
 
-Because the default account hash is in the repository, set the variables above
-if the repository is public and you want credentials that are not in Git.
-
-To reset a hosted password, open a Railway shell and run:
-
-```sh
-flask --app server set-admin-password --email maythu@gmail.com
-```
-
-With a volume this updates the stored account. Without a volume, change
-`SHOP_ADMIN_PASSWORD` on a fresh deployment, or delete the data file first so
-the bootstrap creates the account again.
+Because the built-in password hash is in the repository, set the variables
+above if the repository is public and you want credentials that are not in Git.
 
 The homepage gallery supports up to 26 image/video uploads (50 MB each).
 Guest checkout requires a Yangon township, contact name and phone number.

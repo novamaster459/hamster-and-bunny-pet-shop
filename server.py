@@ -230,9 +230,9 @@ def save_state(data):
 
 
 DEFAULT_ADMIN_EMAIL = "maythu@gmail.com"
-# scrypt hash of the built-in first-run admin password. Change it from the
-# admin dashboard after signing in; SHOP_ADMIN_EMAIL and SHOP_ADMIN_PASSWORD
-# override both values on the host.
+# scrypt hash of the built-in admin password. The account is re-applied every
+# time the server starts; set SHOP_ADMIN_EMAIL/SHOP_ADMIN_PASSWORD to use
+# different credentials instead.
 DEFAULT_ADMIN_PASSWORD_HASH = (
     "scrypt:32768:8:1$EJibxgQGEQpQIWZr$73a0ef3d23d3c6bf3a216aa75df97b9f20d96afd"
     "8177e9ef099e9bd02a0cb555f3d62968bac65cb3461164510d26d8b1224f633696fd06b8e90f0f"
@@ -258,13 +258,13 @@ BOOTSTRAP_ADMIN_NAME = (
 
 
 def ensure_bootstrap_admin():
-    """Create the first administrator when the data file has none.
+    """Write the administrator account into the shop data on startup.
 
     Hosts that start with an empty data file (for example a fresh Railway
-    container) have no way to run the interactive CLI, so the first admin is
-    seeded here. SHOP_ADMIN_EMAIL and SHOP_ADMIN_PASSWORD override the built-in
-    first-run account. Existing admins are never modified, so password changes
-    made in the app are preserved.
+    container) have no way to run the interactive CLI, so the admin is seeded
+    here. The configured account is re-applied on every start, which also
+    repairs a data file that holds an old admin password. SHOP_ADMIN_EMAIL and
+    SHOP_ADMIN_PASSWORD override the built-in credentials.
     """
     if "@" not in BOOTSTRAP_ADMIN_EMAIL:
         app.logger.warning(
@@ -280,8 +280,6 @@ def ensure_bootstrap_admin():
     with STATE_LOCK:
         state_data = load_state()
         users = state_data["users"]
-        if any(user.get("role") == "admin" for user in users):
-            return
         password_hash = (
             generate_password_hash(BOOTSTRAP_ADMIN_PASSWORD)
             if BOOTSTRAP_ADMIN_PASSWORD
@@ -308,7 +306,7 @@ def ensure_bootstrap_admin():
             })
         save_state(state_data)
         app.logger.warning(
-            "Created bootstrap administrator %s.", BOOTSTRAP_ADMIN_EMAIL
+            "Admin account %s is ready for sign-in.", BOOTSTRAP_ADMIN_EMAIL
         )
 
 
@@ -722,6 +720,19 @@ def assets(filename):
 @app.route("/uploads/<path:filename>")
 def uploaded_media(filename):
     return send_from_directory(MEDIA_DIR, filename)
+
+
+@app.route("/api/health")
+def health():
+    state_data = load_state()
+    commit = os.environ.get("RAILWAY_GIT_COMMIT_SHA", "")
+    return jsonify({
+        "ok": True,
+        "commit": commit[:7],
+        "admins": sum(
+            1 for user in state_data["users"] if user.get("role") == "admin"
+        ),
+    })
 
 
 @app.cli.command("create-admin")
