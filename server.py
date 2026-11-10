@@ -229,11 +229,22 @@ def save_state(data):
         DATA_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
-BOOTSTRAP_ADMIN_EMAIL = (
+DEFAULT_ADMIN_EMAIL = "maythu@gmail.com"
+# scrypt hash of the built-in first-run admin password. Change it from the
+# admin dashboard after signing in; SHOP_ADMIN_EMAIL and SHOP_ADMIN_PASSWORD
+# override both values on the host.
+DEFAULT_ADMIN_PASSWORD_HASH = (
+    "scrypt:32768:8:1$EJibxgQGEQpQIWZr$73a0ef3d23d3c6bf3a216aa75df97b9f20d96afd"
+    "8177e9ef099e9bd02a0cb555f3d62968bac65cb3461164510d26d8b1224f633696fd06b8e90f0f"
+    "33cd5c031a"
+)
+
+_env_admin_email = (
     os.environ.get("SHOP_ADMIN_EMAIL")
     or os.environ.get("ADMIN_EMAIL")
     or ""
 ).strip().lower()
+BOOTSTRAP_ADMIN_EMAIL = _env_admin_email or DEFAULT_ADMIN_EMAIL
 BOOTSTRAP_ADMIN_PASSWORD = (
     os.environ.get("SHOP_ADMIN_PASSWORD")
     or os.environ.get("ADMIN_PASSWORD")
@@ -247,23 +258,23 @@ BOOTSTRAP_ADMIN_NAME = (
 
 
 def ensure_bootstrap_admin():
-    """Create the first administrator from environment variables.
+    """Create the first administrator when the data file has none.
 
     Hosts that start with an empty data file (for example a fresh Railway
     container) have no way to run the interactive CLI, so the first admin is
-    seeded from SHOP_ADMIN_EMAIL and SHOP_ADMIN_PASSWORD. Existing admins are
-    never modified, so password changes made in the app are preserved.
+    seeded here. SHOP_ADMIN_EMAIL and SHOP_ADMIN_PASSWORD override the built-in
+    first-run account. Existing admins are never modified, so password changes
+    made in the app are preserved.
     """
-    if not BOOTSTRAP_ADMIN_EMAIL or not BOOTSTRAP_ADMIN_PASSWORD:
+    if "@" not in BOOTSTRAP_ADMIN_EMAIL:
         app.logger.warning(
-            "No administrator bootstrap configured. Set SHOP_ADMIN_EMAIL and "
-            "SHOP_ADMIN_PASSWORD on the host to create the first admin."
+            "Skipped admin bootstrap: the administrator email is invalid."
         )
         return
-    if "@" not in BOOTSTRAP_ADMIN_EMAIL or len(BOOTSTRAP_ADMIN_PASSWORD) < 12:
+    if BOOTSTRAP_ADMIN_PASSWORD and len(BOOTSTRAP_ADMIN_PASSWORD) < 12:
         app.logger.warning(
-            "Skipped admin bootstrap: SHOP_ADMIN_EMAIL must be a valid address "
-            "and SHOP_ADMIN_PASSWORD must be at least 12 characters."
+            "Skipped admin bootstrap: SHOP_ADMIN_PASSWORD must be at least "
+            "12 characters."
         )
         return
     with STATE_LOCK:
@@ -271,6 +282,11 @@ def ensure_bootstrap_admin():
         users = state_data["users"]
         if any(user.get("role") == "admin" for user in users):
             return
+        password_hash = (
+            generate_password_hash(BOOTSTRAP_ADMIN_PASSWORD)
+            if BOOTSTRAP_ADMIN_PASSWORD
+            else DEFAULT_ADMIN_PASSWORD_HASH
+        )
         existing = next(
             (
                 user for user in users
@@ -280,13 +296,13 @@ def ensure_bootstrap_admin():
         )
         if existing:
             existing["role"] = "admin"
-            existing["password"] = generate_password_hash(BOOTSTRAP_ADMIN_PASSWORD)
+            existing["password"] = password_hash
         else:
             users.append({
                 "id": f"user-{secrets.token_hex(8)}",
                 "name": BOOTSTRAP_ADMIN_NAME,
                 "email": BOOTSTRAP_ADMIN_EMAIL,
-                "password": generate_password_hash(BOOTSTRAP_ADMIN_PASSWORD),
+                "password": password_hash,
                 "address": "",
                 "role": "admin",
             })

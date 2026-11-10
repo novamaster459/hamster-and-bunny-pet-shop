@@ -42,10 +42,18 @@ password hashes.
 
 ### Administrator account
 
-On startup the server checks `SHOP_ADMIN_EMAIL` and `SHOP_ADMIN_PASSWORD`. If
-the data file has no administrator, it creates one with those values (the
-password must be at least 12 characters). Existing administrators are never
-overwritten, so password changes made in the app survive restarts.
+If the data file has no administrator, the server creates the built-in
+first-run admin at startup: `maythu@gmail.com` with the password chosen for
+this shop (its scrypt hash lives in `server.py`). Change the email or password
+from the admin dashboard after signing in.
+
+Set `SHOP_ADMIN_EMAIL` and `SHOP_ADMIN_PASSWORD` (or `ADMIN_EMAIL` /
+`ADMIN_PASSWORD`) to seed a different account instead; the password must be at
+least 12 characters. Existing administrators are never overwritten, so password
+changes made in the app survive restarts.
+
+Because the default account hash is in the repository, set the variables above
+if the repository is public and you want credentials that are not in Git.
 
 To reset a hosted password, open a Railway shell and run:
 
