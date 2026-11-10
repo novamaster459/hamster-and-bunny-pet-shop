@@ -229,11 +229,21 @@ def save_state(data):
         DATA_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
-BOOTSTRAP_ADMIN_EMAIL = os.environ.get("SHOP_ADMIN_EMAIL", "").strip().lower()
-BOOTSTRAP_ADMIN_PASSWORD = os.environ.get("SHOP_ADMIN_PASSWORD", "")
-BOOTSTRAP_ADMIN_NAME = (
-    os.environ.get("SHOP_ADMIN_NAME", "Shop Admin").strip() or "Shop Admin"
+BOOTSTRAP_ADMIN_EMAIL = (
+    os.environ.get("SHOP_ADMIN_EMAIL")
+    or os.environ.get("ADMIN_EMAIL")
+    or ""
+).strip().lower()
+BOOTSTRAP_ADMIN_PASSWORD = (
+    os.environ.get("SHOP_ADMIN_PASSWORD")
+    or os.environ.get("ADMIN_PASSWORD")
+    or ""
 )
+BOOTSTRAP_ADMIN_NAME = (
+    os.environ.get("SHOP_ADMIN_NAME")
+    or os.environ.get("ADMIN_NAME")
+    or "Shop Admin"
+).strip() or "Shop Admin"
 
 
 def ensure_bootstrap_admin():
@@ -245,6 +255,10 @@ def ensure_bootstrap_admin():
     never modified, so password changes made in the app are preserved.
     """
     if not BOOTSTRAP_ADMIN_EMAIL or not BOOTSTRAP_ADMIN_PASSWORD:
+        app.logger.warning(
+            "No administrator bootstrap configured. Set SHOP_ADMIN_EMAIL and "
+            "SHOP_ADMIN_PASSWORD on the host to create the first admin."
+        )
         return
     if "@" not in BOOTSTRAP_ADMIN_EMAIL or len(BOOTSTRAP_ADMIN_PASSWORD) < 12:
         app.logger.warning(
