@@ -229,6 +229,59 @@ def save_state(data):
         DATA_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
+BOOTSTRAP_ADMIN_EMAIL = os.environ.get("SHOP_ADMIN_EMAIL", "").strip().lower()
+BOOTSTRAP_ADMIN_PASSWORD = os.environ.get("SHOP_ADMIN_PASSWORD", "")
+BOOTSTRAP_ADMIN_NAME = (
+    os.environ.get("SHOP_ADMIN_NAME", "Shop Admin").strip() or "Shop Admin"
+)
+
+
+def ensure_bootstrap_admin():
+    """Create the first administrator from environment variables.
+
+    Hosts that start with an empty data file (for example a fresh Railway
+    container) have no way to run the interactive CLI, so the first admin is
+    seeded from SHOP_ADMIN_EMAIL and SHOP_ADMIN_PASSWORD. Existing admins are
+    never modified, so password changes made in the app are preserved.
+    """
+    if not BOOTSTRAP_ADMIN_EMAIL or not BOOTSTRAP_ADMIN_PASSWORD:
+        return
+    if "@" not in BOOTSTRAP_ADMIN_EMAIL or len(BOOTSTRAP_ADMIN_PASSWORD) < 12:
+        app.logger.warning(
+            "Skipped admin bootstrap: SHOP_ADMIN_EMAIL must be a valid address "
+            "and SHOP_ADMIN_PASSWORD must be at least 12 characters."
+        )
+        return
+    with STATE_LOCK:
+        state_data = load_state()
+        users = state_data["users"]
+        if any(user.get("role") == "admin" for user in users):
+            return
+        existing = next(
+            (
+                user for user in users
+                if user.get("email", "").strip().lower() == BOOTSTRAP_ADMIN_EMAIL
+            ),
+            None,
+        )
+        if existing:
+            existing["role"] = "admin"
+            existing["password"] = generate_password_hash(BOOTSTRAP_ADMIN_PASSWORD)
+        else:
+            users.append({
+                "id": f"user-{secrets.token_hex(8)}",
+                "name": BOOTSTRAP_ADMIN_NAME,
+                "email": BOOTSTRAP_ADMIN_EMAIL,
+                "password": generate_password_hash(BOOTSTRAP_ADMIN_PASSWORD),
+                "address": "",
+                "role": "admin",
+            })
+        save_state(state_data)
+        app.logger.warning(
+            "Created bootstrap administrator %s.", BOOTSTRAP_ADMIN_EMAIL
+        )
+
+
 def public_user(user):
     return {key: value for key, value in user.items() if key != "password"}
 
@@ -705,6 +758,9 @@ def set_admin_password(admin_email):
     user["password"] = generate_password_hash(password)
     save_state(state_data)
     click.echo("Administrator password updated.")
+
+
+ensure_bootstrap_admin()
 
 
 if __name__ == "__main__":

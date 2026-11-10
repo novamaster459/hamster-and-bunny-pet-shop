@@ -1,101 +1,66 @@
 # Hosting the shop
 
-## Updating the PythonAnywhere site
+## Deploying on Railway
 
-The shop can run as one Flask web app on PythonAnywhere; Netlify is not needed
-for this setup. After pushing code changes to GitHub, update the existing
-PythonAnywhere checkout from its Bash console:
+The shop runs as a single Flask app on Railway. Railway serves both the API and
+the static files (`index.html`, `styles.css`, `app.js`), so no separate static
+host or API URL is needed. The `netlify/` folder and `netlify.toml` are legacy
+and unused for this setup.
+
+1. Push the repository to GitHub (`main` branch).
+2. In Railway choose **New Project → Deploy from GitHub repo** and select
+   `hamster-and-bunny-pet-shop`. Railway detects Python through Nixpacks and
+   uses `railway.json` (or the `Procfile`) to start
+   `gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 4 server:app`.
+3. Open **Variables** and add:
+
+   | Variable | Value |
+   | --- | --- |
+   | `FLASK_SECRET_KEY` | a private random value; generate one with `python -c "import secrets; print(secrets.token_hex(32))"` |
+   | `APP_ENV` | `production` (optional; when set, `FLASK_SECRET_KEY` is required) |
+   | `SHOP_ADMIN_EMAIL` | the first administrator's email |
+   | `SHOP_ADMIN_PASSWORD` | the administrator password, at least 12 characters |
+   | `SHOP_ADMIN_NAME` | optional display name (defaults to `Shop Admin`) |
+   | `SHOP_DATA_FILE` | `/data/shop_data.json` (see persistent storage below) |
+
+4. Open **Settings → Networking** and generate a public domain.
+
+After that, every push to `main` redeploys automatically.
+
+### Persistent storage
+
+Railway containers start from the repository, and `shop_data.json` is ignored
+by Git, so the app seeds an empty shop on first boot. To keep orders, users and
+gallery uploads across redeploys, add a **Volume** mounted at `/data` and set
+`SHOP_DATA_FILE=/data/shop_data.json`. Gallery uploads are stored beside that
+file in `/data/media`.
+
+Without a volume the shop still works, but its data resets whenever the
+container is replaced. Keep one Gunicorn worker while using the JSON-file
+store, and back up the data file because it contains customer records and
+password hashes.
+
+### Administrator account
+
+On startup the server checks `SHOP_ADMIN_EMAIL` and `SHOP_ADMIN_PASSWORD`. If
+the data file has no administrator, it creates one with those values (the
+password must be at least 12 characters). Existing administrators are never
+overwritten, so password changes made in the app survive restarts.
+
+To reset a hosted password, open a Railway shell and run:
 
 ```sh
-workon hamster-shop
-cd ~/hamster-and-bunny-pet-shop
-git pull origin main
-pip install -r requirements.txt
+flask --app server set-admin-password --email maythu@gmail.com
 ```
 
-Then open the PythonAnywhere **Web** tab and click **Reload**. Keep the existing
-WSGI settings for `APP_ENV`, `FLASK_SECRET_KEY`, and `SHOP_DATA_FILE`. Gallery
-uploads are stored beside the configured data file in a `media` folder, so for
-`/home/websiter/.local/share/hamster-shop/shop_data.json` they are stored under
-`/home/websiter/.local/share/hamster-shop/media`.
-
-To reset the password for the existing hosted admin, run these commands in the
-PythonAnywhere Bash console. Use the same secret and data-file path as the
-WSGI file, and replace the example admin email with the email used for that
-admin account:
-
-```sh
-workon hamster-shop
-cd ~/hamster-and-bunny-pet-shop
-export APP_ENV=production
-export FLASK_SECRET_KEY='the same private value used in the WSGI file'
-export SHOP_DATA_FILE=/home/websiter/.local/share/hamster-shop/shop_data.json
-flask --app server set-admin-password --email admin@example.com
-```
-
-Enter and confirm a new password when prompted. The email stays the same. If
-you do not remember the admin email, check the existing account information
-from the hosted `shop_data.json`; do not share that file because it contains
-customer data and password hashes. To create a first admin on a new data file,
-use `flask --app server create-admin` instead. Do not share or commit the
-secret.
+With a volume this updates the stored account. Without a volume, change
+`SHOP_ADMIN_PASSWORD` on a fresh deployment, or delete the data file first so
+the bootstrap creates the account again.
 
 The homepage gallery supports up to 26 image/video uploads (50 MB each).
-Uploads are public media served from the app and persist beside the shop data.
 Guest checkout requires a Yangon township, contact name and phone number.
 Customers receive a private order lookup code; admins accept or deny orders
 from the dashboard.
-
-The site is deployed to Netlify as static files. Netlify's `/api/*` route is a
-same-origin proxy to the Flask API, so login cookies work without exposing
-cross-origin API access. The Flask server must run separately on a persistent
-Python host; Netlify does not run this Flask application.
-
-## 1. Deploy the Flask API
-
-Deploy this project to a Python host that provides HTTPS and persistent storage.
-Configure:
-
-- `APP_ENV=production`
-- `FLASK_SECRET_KEY` to a private, randomly generated value (for example,
-  `python -c "import secrets; print(secrets.token_hex(32))"`)
-- `SHOP_DATA_FILE` to a file on the host's persistent disk, such as
-  `/var/data/shop_data.json`
-
-The included `Procfile` starts Gunicorn with one worker. Keep one worker when
-using this JSON-file store; configure the host's persistent disk at the path
-used by `SHOP_DATA_FILE`. Back up that file securely because it contains
-customer records and password hashes. Do not commit it to source control.
-
-For a new shop, create an administrator once from the server console:
-
-```sh
-flask --app server create-admin
-```
-
-This prompts for the administrator's name, email, and a password of at least
-12 characters. It does not create an account on site visits or expose a
-default password. Existing administrator accounts are kept. If an old database
-still uses the known `admin123` password, the server disables that password;
-set a new one from the server console with:
-
-```sh
-flask --app server set-admin-password --email admin@example.com
-```
-
-## 2. Deploy the Netlify site
-
-Connect the repository to Netlify and set the environment variable
-`SHOP_API_URL` to the Flask server's HTTPS origin, for example
-`https://your-shop-api.example.com` (no `/api` suffix).
-Set it in **Site configuration → Environment variables**, then redeploy. It
-must be the URL from a separately deployed Flask backend, not the Netlify
-website URL. If it points back to this Netlify site, API requests can loop and
-return HTTP 508.
-
-Netlify reads `netlify.toml` to run the dependency-free static build and publish
-only `dist/`. The private Python code and `shop_data.json` are not published as
-website files. Deploy after setting the environment variable.
 
 ## Admin sign-in behavior
 
